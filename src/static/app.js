@@ -3,6 +3,40 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const loginButton = document.getElementById("login-button");
+  const loginDialog = document.getElementById("login-dialog");
+  const loginForm = document.getElementById("login-form");
+  const loginMessage = document.getElementById("login-message");
+  const loginRequired = document.getElementById("login-required");
+  let credentials = sessionStorage.getItem("teacherCredentials");
+
+  function setAdminState(isAdmin, username = "") {
+    signupForm.classList.toggle("hidden", !isAdmin);
+    loginRequired.classList.toggle("hidden", isAdmin);
+    loginButton.textContent = isAdmin ? `Log out (${username})` : "Teacher Login";
+    document.querySelectorAll(".delete-btn").forEach((button) => {
+      button.classList.toggle("hidden", !isAdmin);
+    });
+  }
+
+  async function checkAdminSession() {
+    if (!credentials) {
+      setAdminState(false);
+      return;
+    }
+
+    const response = await fetch("/admin/session", {
+      headers: { Authorization: `Basic ${credentials}` },
+    });
+    if (response.ok) {
+      const result = await response.json();
+      setAdminState(true, result.username);
+    } else {
+      sessionStorage.removeItem("teacherCredentials");
+      credentials = null;
+      setAdminState(false);
+    }
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -12,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -30,7 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${details.participants
                   .map(
                     (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                      `<li><span class="participant-email">${email}</span><button class="delete-btn ${credentials ? "" : "hidden"}" data-activity="${name}" data-email="${email}" aria-label="Unregister ${email}">Remove</button></li>`
                   )
                   .join("")}
               </ul>
@@ -80,6 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )}/unregister?email=${encodeURIComponent(email)}`,
         {
           method: "DELETE",
+          headers: { Authorization: `Basic ${credentials}` },
         }
       );
 
@@ -124,6 +160,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )}/signup?email=${encodeURIComponent(email)}`,
         {
           method: "POST",
+          headers: { Authorization: `Basic ${credentials}` },
         }
       );
 
@@ -155,6 +192,46 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  loginButton.addEventListener("click", () => {
+    if (credentials) {
+      sessionStorage.removeItem("teacherCredentials");
+      credentials = null;
+      setAdminState(false);
+      fetchActivities();
+      return;
+    }
+    loginDialog.showModal();
+  });
+
+  document.getElementById("cancel-login").addEventListener("click", () => {
+    loginDialog.close();
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+    const encodedCredentials = btoa(`${username}:${password}`);
+    const response = await fetch("/admin/session", {
+      headers: { Authorization: `Basic ${encodedCredentials}` },
+    });
+
+    if (!response.ok) {
+      loginMessage.textContent = "Invalid teacher username or password.";
+      loginMessage.className = "error";
+      return;
+    }
+
+    credentials = encodedCredentials;
+    sessionStorage.setItem("teacherCredentials", credentials);
+    loginMessage.className = "hidden";
+    loginForm.reset();
+    loginDialog.close();
+    await checkAdminSession();
+    fetchActivities();
+  });
+
   // Initialize app
+  checkAdminSession();
   fetchActivities();
 });
